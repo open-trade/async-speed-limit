@@ -210,102 +210,15 @@ mod tests {
 #[cfg(test)]
 #[cfg(feature = "standard-clock")]
 mod tokio_tests {
-    use crate::Limiter;
-    use futures_util::compat::{AsyncRead01CompatExt, Compat};
-    use std::{
-        io::{repeat, sink, Read},
-        time::{Duration, Instant},
-    };
-    use tokio::{
-        codec::{BytesCodec, FramedRead},
-        io::{copy, shutdown},
-        prelude::{
-            future::{lazy, Future},
-            Stream,
-        },
-        runtime::Runtime,
-    };
-
     #[test]
-    fn limited_read() {
-        let limiter = <Limiter>::new(32768.0);
-
-        let mut rt = Runtime::new().unwrap();
-
-        let start_time = Instant::now();
-        let total = rt
-            .block_on(lazy(|| {
-                let reader = repeat(50u8).take(65536);
-                let reader = Compat::new(limiter.limit(reader.compat()));
-                copy(reader, sink())
-                    .and_then(|(total, _, write)| shutdown(write).map(move |_| total))
-            }))
-            .unwrap();
-        let elapsed = start_time.elapsed();
-
-        assert!(
-            Duration::from_millis(1900) <= elapsed && elapsed <= Duration::from_millis(2100),
-            "elapsed = {:?}",
-            elapsed
-        );
-        assert_eq!(total, 65536);
-
-        rt.shutdown_now().wait().unwrap();
+    fn test() {
+        async_test();
     }
 
-    #[test]
-    fn unlimited_read() {
-        let limiter = <Limiter>::new(std::f64::INFINITY);
-
-        let mut rt = Runtime::new().unwrap();
-
-        let start_time = Instant::now();
-        let total = rt
-            .block_on(lazy(|| {
-                let reader = repeat(50u8).take(65536);
-                let reader = Compat::new(limiter.limit(reader.compat()));
-                copy(reader, sink())
-                    .and_then(|(total, _, write)| shutdown(write).map(move |_| total))
-            }))
-            .unwrap();
-        let elapsed = start_time.elapsed();
-
-        assert!(
-            elapsed <= Duration::from_millis(100),
-            "elapsed = {:?}",
-            elapsed
-        );
-        assert_eq!(total, 65536);
-
-        rt.shutdown_now().wait().unwrap();
-    }
-
-    #[test]
-    fn limited_read_byte_stream() {
-        let limiter = <Limiter>::new(30000.0);
-
-        let mut rt = Runtime::new().unwrap();
-
-        let start_time = Instant::now();
-        let total = rt
-            .block_on(lazy(|| {
-                let reader = repeat(50u8).take(60000);
-                let reader = Compat::new(limiter.limit(reader.compat()));
-                FramedRead::new(reader, BytesCodec::new()).fold(0, |i, j| {
-                    assert!(j.iter().all(|b| *b == 50u8), "{} / {:?}", i, j);
-                    Ok::<_, std::io::Error>(i + j.len())
-                })
-            }))
-            .unwrap();
-        let elapsed = start_time.elapsed();
-
-        assert!(
-            Duration::from_millis(1900) <= elapsed && elapsed <= Duration::from_millis(2100),
-            "elapsed = {:?}",
-            elapsed
-        );
-        assert_eq!(total, 60000);
-
-        rt.shutdown_now().wait().unwrap();
+    #[tokio::main(flavor = "multi_thread")]
+    async fn async_test() {
+        use crate::Limiter;
+        let limiter = <Limiter>::new(1_048_576.0);
+        limiter.consume(10000).await;
     }
 }
